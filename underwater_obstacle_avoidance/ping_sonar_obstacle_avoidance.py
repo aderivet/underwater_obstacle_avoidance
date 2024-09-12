@@ -5,6 +5,7 @@ import time
 import math
 import argparse
 import csv
+import brping
 from brping import Ping1D
 
 
@@ -43,9 +44,10 @@ MM_TO_M = 0.001
 
 
 class PingSonarObstacleAvoidance:
-    def __init__(self, baudrate=115200, ping_port='/dev/ttyUSB0', udp_address=None, device_type='Ping1D',
-                 poll_rate=10.0, min_distance=0.0, max_distance=0.0 + (15953 * MM_TO_M), speed_of_sound=343.0,
-                 min_confidence=0, gain=6, ping_interval=250, mode_auto=True, fov=30.0, csv_path=""):
+    def __init__(self, baudrate=115200, ping_port='COM3', udp_address=None, device_type='Ping1D',         # changed ping_port to COM3 -> windows
+                 poll_rate=20.0, min_distance=1.0, max_distance=20.0, speed_of_sound=343.0,
+                 min_confidence=30, gain=3, ping_interval=150, mode_auto=False, fov=30.0, csv_path=""
+):
         """
         Input units are in meters but converted to millimeters for use with the device and returned values in meters
         :param baudrate:
@@ -134,53 +136,74 @@ class PingSonarObstacleAvoidance:
     def range_callback(self):
         current_time = time.time()
         data = self.get_distance()
+
+            # Initialize variables with default values
+        distance = None
+        confidence = None
+        transmit_duration = None
+        ping_number = None
+        scan_start = None
+        scan_length = None
+        max_range = None
+        gain_setting = None
+        profile_data = None
+        speed_of_sound = None
+        firmware_version_major = None
+        firmware_version_minor = None
+        ping_interval = None
+        mode_auto = None
+
         if data:
             # Units: mm. The current return distance determined for the most recent acoustic measurement converted to m
-            distance = data['distance'] * MM_TO_M  # in m
+            distance = data.get('distance', 0) * MM_TO_M  # in m
             # Units: %. Confidence in the most recent range measurement.
-            confidence = data['confidence']
+            confidence = data.get('confidence', 0)
             # Units: us. The acoustic pulse length during acoustic transmission/activation.
-            transmit_duration = data['transmit_duration']
+            transmit_duration = data.get('transmit_duration', 0)
             # The pulse/measurement count since boot.
-            ping_number = data['ping_number']
+            ping_number = data.get('ping_number', 0)
 
 
             # note that running self.ping.get_range() gives scan_start and scan_length
             # Units: mm; The beginning of the scan region in mm from the transducer.
-            scan_start = data['scan_start'] * MM_TO_M
+            scan_start = data.get('scan_start', 0)* MM_TO_M
             # Units: mm; The length of the scan region.
-            scan_length = data['scan_length'] * MM_TO_M
+            scan_length = data.get('scan_length', 0) * MM_TO_M
 
             max_range = scan_start + scan_length
             # The current gain setting. 0: 0.6, 1: 1.8, 2: 5.5, 3: 12.9, 4: 30.2, 5: 66.1, 6: 144
-            gain_setting = data['gain_setting']  # equivalent to self.ping.get_gain_setting()
+            gain_setting = data.get('gain_setting', 0)  # equivalent to self.ping.get_gain_setting()
 
-            profile_data = data['profile_data']
-
-            print(f"Distance: {distance} meters, Confidence: {confidence}, Transmit Duration: {transmit_duration}")
+            profile_data = data.get('profile_data', 0)
+            if confidence >= 30:
+               print(f"Distance: {distance} meters, Confidence: {confidence}, Transmit Duration: {transmit_duration}")
 
         else:
             print("Failed to get data")
 
-        speed_of_sound = self.ping.get_speed_of_sound()
+        speed_of_sound_info = self.ping.get_speed_of_sound()
         if speed_of_sound:
-            speed_of_sound = speed_of_sound["speed_of_sound"] * MM_TO_M
+            speed_of_sound = speed_of_sound_info.get("speed_of_sound", 343.0) * MM_TO_M
 
         general_info = self.ping.get_general_info()
         if general_info:
-            firmware_version_major = general_info["firmware_version_major"]
-            firmware_version_minor = general_info["firmware_version_minor"]
-            ping_interval = general_info["ping_interval"]  #  Units: ms; The interval between acoustic measurements.
-            gain_setting = general_info["gain_setting"]
-            mode_auto = general_info["mode_auto"]  # 0: manual, 1: auto
+            firmware_version_major = general_info.get("firmware_version_major", 0)
+            firmware_version_minor = general_info.get("firmware_version_minor", 0)
+            ping_interval = general_info.get("ping_interval", 0)  #  Units: ms; The interval between acoustic measurements.
+            gain_setting = general_info.get("gain_setting", 0)
+            mode_auto = general_info.get("mode_auto", 0)  # 0: manual, 1: auto
 
-        self.write_to_csv(
-                [current_time, distance, confidence, transmit_duration, ping_number, max_range, gain_setting, profile_data, speed_of_sound, firmware_version_major, firmware_version_minor, ping_interval, mode_auto])
+        if confidence >= 30:
+            self.write_to_csv([
+                current_time, distance, confidence, transmit_duration, ping_number,
+                max_range, gain_setting, profile_data, speed_of_sound, firmware_version_major,
+                firmware_version_minor, ping_interval, mode_auto
+            ])
         time.sleep(1 / self.poll_rate)
         return data, general_info, speed_of_sound
 
 
 if __name__ == '__main__':
-    psoa = PingSonarObstacleAvoidance(csv_path='')
+    psoa = PingSonarObstacleAvoidance(csv_path='Trial13.csv')
     while True:
         psoa.range_callback()
