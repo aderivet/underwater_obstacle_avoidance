@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 
 # ping_sonar_obstacle_avoidance.py
+import datetime
 import time
 import math
 import argparse
 import csv
-import brping
 from brping import Ping1D
 
 
@@ -33,8 +33,8 @@ In-person tests:
     
 Todo:
     * check (https://discuss.bluerobotics.com/t/interpreting-profile-data-in-ping-python/17272/8)
-    * check the difference between ping numbers, e.g if current ping number == prev ping number, skip
-    * limit the range to sensible values
+    * check the difference between ping numbers, e.g if current ping number == prev ping number, skip       % DONE
+    * limit the range to sensible values                                        
     * adujust the speed of sound
     * adjust the gain
     * adjust the ping interval
@@ -44,9 +44,9 @@ MM_TO_M = 0.001
 
 
 class PingSonarObstacleAvoidance:
-    def __init__(self, baudrate=115200, ping_port='COM3', udp_address=None, device_type='Ping1D',         # changed ping_port to COM3 -> windows
-                 poll_rate=20.0, min_distance=1.0, max_distance=20.0, speed_of_sound=343.0,
-                 min_confidence=30, gain=3, ping_interval=150, mode_auto=False, fov=30.0, csv_path=""
+    def __init__(self, baudrate=115200, ping_port='COM3', udp_address=None, device_type='Ping1D',
+                 poll_rate=20.0, min_distance=1.0, max_distance=3, speed_of_sound=344.0,
+                 min_confidence=30, gain=1, ping_interval=100, mode_auto=False, fov=30.0, csv_path=""
 ):
         """
         Input units are in meters but converted to millimeters for use with the device and returned values in meters
@@ -134,7 +134,7 @@ class PingSonarObstacleAvoidance:
         pass
 
     def range_callback(self):
-        current_time = time.time()
+        current_time = datetime.datetime.now(datetime.timezone.utc).strftime('%H:%M:%S.%f')[:-3]
         data = self.get_distance()
 
             # Initialize variables with default values
@@ -152,6 +152,7 @@ class PingSonarObstacleAvoidance:
         firmware_version_minor = None
         ping_interval = None
         mode_auto = None
+        previous_ping = 0
 
         if data:
             # Units: mm. The current return distance determined for the most recent acoustic measurement converted to m
@@ -174,8 +175,13 @@ class PingSonarObstacleAvoidance:
             # The current gain setting. 0: 0.6, 1: 1.8, 2: 5.5, 3: 12.9, 4: 30.2, 5: 66.1, 6: 144
             gain_setting = data.get('gain_setting', 0)  # equivalent to self.ping.get_gain_setting()
 
-            profile_data = data.get('profile_data', 0)
-            if confidence >= 30:
+            profile_data_list = data.get('profile_data', [])
+            bin_count = len(profile_data_list)
+            assert bin_count == 200, f"Unexpected data length encountered ({bin_count} != 200) - adjust CSV creation code"
+            profile_data = ','.join(str(response_strength) for response_strength in profile_data_list)
+
+            if confidence >= 30 and previous_ping != ping_number:
+               print(list(data['profile_data']))
                print(f"Distance: {distance} meters, Confidence: {confidence}, Transmit Duration: {transmit_duration}")
 
         else:
@@ -193,17 +199,18 @@ class PingSonarObstacleAvoidance:
             gain_setting = general_info.get("gain_setting", 0)
             mode_auto = general_info.get("mode_auto", 0)  # 0: manual, 1: auto
 
-        if confidence >= 30:
+        if confidence >= 30 and previous_ping != ping_number:
             self.write_to_csv([
                 current_time, distance, confidence, transmit_duration, ping_number,
                 max_range, gain_setting, profile_data, speed_of_sound, firmware_version_major,
                 firmware_version_minor, ping_interval, mode_auto
             ])
         time.sleep(1 / self.poll_rate)
+        previous_ping = ping_number
         return data, general_info, speed_of_sound
 
 
 if __name__ == '__main__':
-    psoa = PingSonarObstacleAvoidance(csv_path='Trial13.csv')
+    psoa = PingSonarObstacleAvoidance(csv_path='Trial28.csv')
     while True:
         psoa.range_callback()
